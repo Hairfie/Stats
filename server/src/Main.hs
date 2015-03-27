@@ -38,7 +38,7 @@ data Stats = Stats
     }
 
 instance ToJSON Stats where
-    toJSON s = object ["numHairifes"       .= statsNumHairfies s
+    toJSON s = object ["numHairfies"       .= statsNumHairfies s
                       ,"numHairfieLikes"   .= statsNumHairfieLikes s
                       ,"numReviews"        .= statsNumReviews s
                       ,"numReviewRequests" .= statsNumReviewRequests s
