@@ -3,34 +3,32 @@
 
 module Main (main) where
 
-import Web.Scotty.Trans
-import Network.Wai.Middleware.RequestLogger
+import           Control.Applicative    (Applicative, pure, (<$>), (<*>))
+import           Control.Monad.Reader
+import           Data.Aeson             (ToJSON, toJSON, object, (.=))
+import           Data.Text              (Text)
+import qualified Data.Text              as T
+import qualified Data.Text.Lazy         as TL
+import           Data.Time.Format       (parseTimeM, defaultTimeLocale)
+import           Data.Time.Clock
+import           Data.Maybe             (isJust, fromMaybe)
+import           Data.Pool
+import qualified Database.MongoDB       as Mongo
+import           System.Environment
+import           Network.Wai.Middleware.RequestLogger
+import           Web.Scotty.Trans
 
-import Data.Text (Text)
-import qualified Data.Text as T
-import Data.Maybe (isJust, fromMaybe)
-import qualified Data.Text.Lazy as TL
-import Data.Aeson (ToJSON, toJSON, object, (.=))
-import Data.Time.Format (parseTimeM, defaultTimeLocale)
-import Data.Time.Clock
-import Data.Pool
-
-import Control.Applicative (Applicative, pure, (<$>), (<*>))
-import Control.Monad.Reader
-
-import System.Environment
-
-import qualified Database.MongoDB as Mongo
-
-instance Parsable UTCTime where
-        parseParam = parseTimeM True defaultTimeLocale "%FT%T%QZ" . TL.unpack
+instance Parsable UTCTime where parseParam = parseTimeM True defaultTimeLocale "%FT%T%QZ" . TL.unpack
 
 data Status = Status
-    { statusUptime :: Int
+    { statusStarted :: UTCTime
+    , statusUptime  :: Double
     }
 
 instance ToJSON Status where
-    toJSON s = object ["uptime" .= statusUptime s]
+    toJSON s = object ["started" .= statusStarted s
+                      ,"uptime" .= statusUptime s
+                      ]
 
 data Stats = Stats
     { statsNumHairfies       :: Int
@@ -95,13 +93,12 @@ main = do
     state  <- getAppState config
     scottyT (port config) (runWebM state) (runWebM state) app
 
-currentStatus :: WebM Status
-currentStatus = do
+getStatus :: WebM Status
+getStatus = do
     st <- asks startTime
     nt <- liftIO getCurrentTime
     let dt = diffUTCTime nt st
-        ds = floor $ realToFrac dt
-    return $ Status ds
+    return $ Status st (realToFrac dt)
 
 mongo :: Mongo.Action IO a -> WebM a
 mongo action = do
@@ -129,13 +126,13 @@ app :: ScottyT TL.Text WebM ()
 app = do
     middleware logStdoutDev
     get "/" $ do
-        st <- webM currentStatus
+        st <- webM getStatus
         json st
     get "/businesses/:businessId" $ do
         businessId <- param "businessId"
         since      <- maybeParam "since"
         until      <- maybeParam "until"
-        bs <- webM $ getBusinessStats businessId since until
+        bs         <- webM $ getBusinessStats businessId since until
         json bs
 
 getBusinessStats :: Text -> Maybe UTCTime -> Maybe UTCTime -> WebM Stats
